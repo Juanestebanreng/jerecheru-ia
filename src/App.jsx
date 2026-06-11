@@ -57,66 +57,23 @@ const Icon = ({ name, size=16, color="currentColor", style={} }) => {
 const JLogo = ({ size = 80 }) => (
   <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <radialGradient id="bgGrad" cx="40%" cy="35%" r="65%">
-        <stop offset="0%" stopColor="#2A2016"/>
-        <stop offset="100%" stopColor="#0D0B09"/>
-      </radialGradient>
-      <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#E8830A"/>
-        <stop offset="50%" stopColor="#F5A623"/>
-        <stop offset="100%" stopColor="#D97706"/>
-      </linearGradient>
-      <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="#E8830A"/>
-        <stop offset="100%" stopColor="#F5A623"/>
-      </linearGradient>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-        <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
+      <radialGradient id="jbg" cx="40%" cy="35%" r="65%"><stop offset="0%" stopColor="#2A2016"/><stop offset="100%" stopColor="#0D0B09"/></radialGradient>
+      <linearGradient id="jrg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#E8830A"/><stop offset="50%" stopColor="#F5A623"/><stop offset="100%" stopColor="#D97706"/></linearGradient>
+      <linearGradient id="jtg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#E8830A"/><stop offset="100%" stopColor="#F5A623"/></linearGradient>
+      <clipPath id="jcp"><circle cx="100" cy="100" r="86"/></clipPath>
     </defs>
-
-    {/* Outer glow ring */}
     <circle cx="100" cy="100" r="96" fill="none" stroke="#E8830A" strokeWidth="0.5" opacity="0.3"/>
-
-    {/* Main circle background */}
-    <circle cx="100" cy="100" r="90" fill="url(#bgGrad)"/>
-
-    {/* Metallic border ring */}
-    <circle cx="100" cy="100" r="90" fill="none" stroke="url(#ringGrad)" strokeWidth="2.5"/>
+    <circle cx="100" cy="100" r="90" fill="url(#jbg)"/>
+    <circle cx="100" cy="100" r="90" fill="none" stroke="url(#jrg)" strokeWidth="2.5"/>
     <circle cx="100" cy="100" r="84" fill="none" stroke="#3A2A0A" strokeWidth="0.8" opacity="0.6"/>
-
-    {/* Inner highlight arc - top left */}
-    <path d="M 30 70 A 75 75 0 0 1 90 18" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" strokeLinecap="round"/>
-
-    {/* Script text - Jenecherú */}
-    <text
-      x="100" y="112"
-      textAnchor="middle"
-      fontFamily="Georgia, 'Times New Roman', serif"
-      fontStyle="italic"
-      fontWeight="700"
-      fontSize="36"
-      fill="url(#textGrad)"
-      filter="url(#glow)"
-      letterSpacing="1"
-    >Jenecherú</text>
-
-    {/* Decorative underline swash */}
-    <path d="M 48 120 Q 100 128 152 120" fill="none" stroke="#E8830A" strokeWidth="0.8" opacity="0.5"/>
-
-    {/* Tagline */}
-    <text
-      x="100" y="140"
-      textAnchor="middle"
-      fontFamily="Arial, sans-serif"
-      fontWeight="500"
-      fontSize="9"
-      fill="#B8A88A"
-      letterSpacing="2"
-    >EL FUEGO QUE NUNCA SE APAGA</text>
+    <g clipPath="url(#jcp)">
+      <text x="100" y="106" textAnchor="middle" fontFamily="Georgia, serif" fontStyle="italic" fontWeight="700" fontSize="30" fill="url(#jtg)" letterSpacing="1">Jenecherú</text>
+      <path d="M 52 114 Q 100 120 148 114" fill="none" stroke="#E8830A" strokeWidth="0.8" opacity="0.5"/>
+      <text x="100" y="132" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="500" fontSize="8" fill="#B8A88A" letterSpacing="2">EL FUEGO QUE NUNCA SE APAGA</text>
+    </g>
   </svg>
 );
+
 
 const TECHNICIANS = [
   { id:1,  name:"Mauricio Acosta",       pin:"7854", jobsAssigned:7, jobsCompleted:0, status:"SIN INICIAR" },
@@ -201,8 +158,8 @@ const INVOICES = [
 ];
 
 const PRODUCTION_DATA = TECHNICIANS.map(t => {
-  const m = Math.floor(Math.random()*30+60);
-  const a = Math.floor(Math.random()*20+20);
+  const m = 60 + ((t.id * 17) % 30);
+  const a = 20 + ((t.id * 13) % 20);
   return { ...t, mantenimiento:m, altas:a, total:m+a, expected:160, diff:(m+a)-160 };
 });
 // Referencia base: cómo era el negocio ANTES de la aplicación
@@ -258,7 +215,7 @@ const STATUS_PIE = [
 
 // Business context for AI
 const BUSINESS_CONTEXT = `
-Eres el asistente de inteligencia artificial de Jenecherú IA, una aplicación de gestión de operaciones para una empresa de telecomunicaciones subcontratista en Erandio, Vizcaya (Bilbao), España. Razón social: JENECHERU TELECOMUNICACIONES SL. El propietario se llama Daniel. Trabajan con Vodafone, Orange, Euskaltel, Más Móvil y Alarmas Segurma. La empresa facturadora principal es Zener (ZENER ALARMAS S.L., ZENER PLUS SL, ZENER COMUNICACIONES S.A.U.). Cobran a 60 días mediante confirming.
+Eres el asistente de inteligencia artificial de Jenecherú, una aplicación de gestión de operaciones para una empresa de telecomunicaciones subcontratista en Erandio, Vizcaya (Bilbao), España. Razón social: JENECHERU TELECOMUNICACIONES SL. El propietario se llama Daniel. Trabajan con Vodafone, Orange, Euskaltel, Más Móvil y Alarmas Segurma. La empresa facturadora principal es Zener (ZENER ALARMAS S.L., ZENER PLUS SL, ZENER COMUNICACIONES S.A.U.). Cobran a 60 días mediante confirming.
 
 DATOS ACTUALES DEL NEGOCIO:
 - 12 técnicos activos hoy
@@ -397,7 +354,7 @@ function Briefing({ setScreen, isMobile }) {
         <div style={{fontSize:13,color:B.creamDim,marginTop:6}}>
           {totalA>0
             ? <>Hoy tienes <strong style={{color:B.amber}}>{totalA} trabajos asignados</strong> — {totalY} completados ({pct}%).</>
-            : <>Bienvenido a Jenecherú IA. Los datos aparecerán cuando los técnicos empiecen a registrar trabajos.</>
+            : <>Bienvenido a Jenecherú. Los datos aparecerán cuando los técnicos empiecen a registrar trabajos.</>
           }
         </div>
       </div>
@@ -1033,7 +990,7 @@ function ROIDashboard({ roiEvents = [] }) {
         <div>
           <div style={{fontSize:13,color:B.green,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>💰 Ahorro total registrado</div>
           <div style={{fontSize:42,fontWeight:800,color:B.green,letterSpacing:-2,lineHeight:1}}>€{netSaving.toLocaleString()}</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:6}}>Desde que Jenecherú IA está en marcha</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:6}}>Desde que Jenecherú está en marcha</div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:12,color:B.creamDim,marginBottom:4}}>Sin la app, perderías mensualmente:</div>
@@ -1166,6 +1123,23 @@ const BOTTOM_TABS=[
   {id:"roi",     icon:"savings",label:"Ahorros"},
 ];
 
+const TiloMark = ({ size = 120 }) => (
+  <svg width={size} height={size * 0.4} viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="tiloGold" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#C9A84C"/>
+        <stop offset="100%" stopColor="#9A7A2E"/>
+      </linearGradient>
+    </defs>
+    <rect x="60" y="2" width="80" height="10" rx="1" fill="url(#tiloGold)"/>
+    <rect x="95" y="2" width="10" height="38" rx="1" fill="url(#tiloGold)"/>
+    <text x="100" y="60" textAnchor="middle" fontFamily="Georgia, serif" fontSize="14" fontWeight="400" fill="#C9A84C" letterSpacing="6">TILO STUDIO</text>
+    <line x1="30" y1="64" x2="68" y2="64" stroke="#9A7A2E" strokeWidth="0.8"/>
+    <line x1="132" y1="64" x2="170" y2="64" stroke="#9A7A2E" strokeWidth="0.8"/>
+  </svg>
+);
+
+
 function TechnicianLogin({ onLogin, onBack }) {
   const [selected, setSelected] = useState(null);
   const [pin, setPin] = useState("");
@@ -1269,7 +1243,7 @@ function Login({onLogin}){
   const submit=()=>{
     if((email==="daniel@jenecheru.es"||email==="jenecherutelecomunicaciones@gmail.com")&&pass==="jenecheru2026"){onLogin("owner");return;}
     if((email==="secretaria@jenecheru.es"||email==="jenecheruteleco@gmail.com")&&pass==="jenecheru2026"){onLogin("secretary");return;}
-    setErr("Email o contraseña incorrectos.");
+    setErr("Credenciales incorrectas.");
   };
 
   return (
@@ -1279,7 +1253,7 @@ function Login({onLogin}){
           <div style={{display:"flex",justifyContent:"center",marginLeft:"-20px",marginBottom:16}}>
             <JLogo size={110}/>
           </div>
-          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú IA</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú</div>
           <div style={{fontSize:11,color:B.creamDim,letterSpacing:"0.15em",textTransform:"uppercase",marginTop:4}}>El fuego que nunca se apaga</div>
         </div>
 
@@ -1296,7 +1270,7 @@ function Login({onLogin}){
 
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
           <div style={{flex:1,height:1,background:B.border}}/>
-          <span style={{fontSize:12,color:B.creamDim}}>o accede con email</span>
+          <span style={{fontSize:12,color:B.creamDim}}>o</span>
           <div style={{flex:1,height:1,background:B.border}}/>
         </div>
 
@@ -1314,6 +1288,10 @@ function Login({onLogin}){
         </div>
         {err&&<div style={{background:B.red+"15",color:B.red,padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:16,border:`1px solid ${B.red}30`}}>{err}</div>}
         <button onClick={submit} style={{width:"100%",padding:"14px",borderRadius:10,border:"none",background:B.bgAccent,color:B.creamDim,fontWeight:700,fontSize:15,cursor:"pointer",border:`1px solid ${B.border}`}}>Entrar</button>
+        <div style={{textAlign:"center",marginTop:28,paddingTop:20,borderTop:`1px solid ${B.border}`}}>
+          <TiloMark size={120}/>
+          <div style={{fontSize:10,color:"#555",marginTop:8,letterSpacing:"0.05em"}}>© 2026 Tilo Studio. Todos los derechos reservados.</div>
+        </div>
       </div>
     </div>
   );
@@ -1327,7 +1305,7 @@ function MobileMenu({screen,setScreen,role,onClose,onLogout}){
       <div style={{width:260,background:B.bgMid,borderLeft:`1px solid ${B.border}`,display:"flex",flexDirection:"column",overflowY:"auto"}}>
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${B.border}`,display:"flex",alignItems:"center",gap:12}}>
           <JLogo size={38}/>
-          <div><div style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú IA</div><div style={{fontSize:9,color:B.creamDim,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:1}}>El fuego que nunca se apaga</div></div>
+          <div><div style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú</div><div style={{fontSize:9,color:B.creamDim,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:1}}>El fuego que nunca se apaga</div></div>
         </div>
         <nav style={{flex:1,padding:"8px 0"}}>
           {visibleNav.map(item=>(
@@ -1382,7 +1360,7 @@ export default function App() {
       <div style={{background:B.bgMid,borderBottom:`1px solid ${B.border}`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <JLogo size={30}/>
-          <div style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú IA</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,fontStyle:"italic",color:B.amber}}>Jenecherú</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{fontSize:12,color:B.creamDim,maxWidth:120,textAlign:"right",lineHeight:1.3}}>{TITLES[screen]}</div>
@@ -1412,7 +1390,7 @@ export default function App() {
       <div style={{width:248,background:B.bgMid,display:"flex",flexDirection:"column",flexShrink:0,overflow:"auto",borderRight:`1px solid ${B.border}`}}>
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${B.border}`,display:"flex",alignItems:"center",gap:12}}>
           <JLogo size={42}/>
-          <div><div style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,fontStyle:"italic",color:B.amber,lineHeight:1.2}}>Jenecherú IA</div><div style={{fontSize:9,color:B.creamDim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:2}}>El fuego que nunca se apaga</div></div>
+          <div><div style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,fontStyle:"italic",color:B.amber,lineHeight:1.2}}>Jenecherú</div><div style={{fontSize:9,color:B.creamDim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:2}}>El fuego que nunca se apaga</div></div>
         </div>
         <nav style={{padding:"10px 0",flex:1}}>
           {visibleNav.map(item=>(
