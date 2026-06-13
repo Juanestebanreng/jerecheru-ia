@@ -99,12 +99,6 @@ const TECHNICIANS = [
   { id:19, name:"Leonardo Ocampo",       pin:"8135" },
 ];
 
-const PRODUCTION_DATA = TECHNICIANS.map(t => {
-  const m = 60 + ((t.id * 17) % 30);
-  const a = 20 + ((t.id * 13) % 20);
-  return { ...t, mantenimiento:m, altas:a, total:m+a, expected:160, diff:(m+a)-160 };
-});
-
 const ROI_BENCHMARK = { ordersLostPerTechPerMonth:7, pricePerOrder:26.70, numTechnicians:19 };
 
 const INVOICES_STATIC = [
@@ -297,30 +291,103 @@ function Tracker() {
 
 function Production() {
   const [period,setPeriod]=useState("mensual");
+  const [logs,setLogs]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  // Date helpers
+  const getRange = () => {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,"0");
+    const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+    if(period==="diario"){
+      const start = fmt(now)+"T00:00:00";
+      const end   = fmt(now)+"T23:59:59";
+      return {start,end,label:"Hoy"};
+    }
+    if(period==="semanal"){
+      const day = now.getDay(); // 0=Sun
+      const diff = day===0?-6:1-day; // back to Monday
+      const mon = new Date(now); mon.setDate(now.getDate()+diff);
+      const fri = new Date(mon); fri.setDate(mon.getDate()+4);
+      return {start:fmt(mon)+"T00:00:00",end:fmt(fri)+"T23:59:59",label:`Semana ${fmt(mon).slice(8)}–${fmt(fri).slice(8)}/${fmt(fri).slice(5,7)}`};
+    }
+    // mensual
+    const start = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01T00:00:00`;
+    const lastDay = new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+    const end   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(lastDay)}T23:59:59`;
+    return {start,end,label:now.toLocaleDateString("es-ES",{month:"long",year:"numeric"})};
+  };
+
+  useEffect(()=>{
+    setLoading(true);
+    const {start,end} = getRange();
+    sb("job_logs","GET",null,`?logged_at=gte.${start}&logged_at=lte.${end}&order=logged_at.desc`).then(data=>{
+      setLogs(Array.isArray(data)?data:[]);
+      setLoading(false);
+    });
+  },[period]);
+
+  const {label} = getRange();
+
+  const techStats = TECHNICIANS.map(t=>{
+    const mine = logs.filter(l=>l.technician_name===t.name);
+    const completados = mine.filter(l=>l.outcome==="COMPLETADO").length;
+    const altas       = mine.filter(l=>l.job_type==="Alta").length;
+    const total       = mine.length;
+    return {...t, completados, altas, total};
+  });
+
+  const totalJobs = techStats.reduce((a,t)=>a+t.total,0);
+  const totalComp = techStats.reduce((a,t)=>a+t.completados,0);
+
   return (
     <div>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
         {["diario","semanal","mensual"].map(p=>(
           <button key={p} onClick={()=>setPeriod(p)} style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${period===p?B.amber:B.border}`,background:period===p?B.amber:"transparent",color:period===p?B.bg:B.cream,fontWeight:600,fontSize:13,cursor:"pointer",flex:1}}>{p.charAt(0).toUpperCase()+p.slice(1)}</button>
         ))}
       </div>
-      {PRODUCTION_DATA.map((t,i)=>(
+
+      <div style={{fontSize:11,color:B.creamDim,marginBottom:12,textAlign:"center"}}>{label}</div>
+
+      <StatGrid stats={[
+        {label:"Trabajos registrados",value:totalJobs,color:B.amber},
+        {label:"Completados",value:totalComp,color:B.green},
+        {label:"Técnicos",value:TECHNICIANS.length,color:B.gold},
+        {label:"% Completado",value:totalJobs>0?`${Math.round(totalComp/totalJobs*100)}%`:"—",color:B.blue},
+      ]}/>
+
+      {loading && <Loader/>}
+
+      {!loading && totalJobs===0 && (
+        <div style={{textAlign:"center",padding:"30px 0",color:B.creamDim,fontSize:13}}>
+          No hay trabajos registrados para este período.
+        </div>
+      )}
+
+      {!loading && techStats.filter(t=>t.total>0).map((t,i)=>(
         <div key={t.id} style={{background:i%2===0?B.bgMid:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{fontWeight:700,color:B.gold,fontSize:15}}>{t.name}</span>
-            <span style={{fontWeight:700,fontSize:14,color:t.diff>=0?B.green:B.red}}>{t.diff>=0?"+":""}{t.diff}</span>
+            <span style={{fontSize:12,color:B.creamDim}}>{t.total} registros</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-            {[["Mant.",t.mantenimiento,B.cream],["Altas",t.altas,B.cream],["Total",t.total,B.amber]].map(([l,v,c])=>(
+            {[["Completados",t.completados,B.green],["Altas",t.altas,B.cream],["Total",t.total,B.amber]].map(([l,v,c])=>(
               <div key={l} style={{background:B.bg,borderRadius:8,padding:"8px",textAlign:"center",border:`1px solid ${B.border}`}}>
                 <div style={{fontSize:17,fontWeight:800,color:c}}>{v}</div>
                 <div style={{fontSize:10,color:B.creamDim,marginTop:1}}>{l}</div>
               </div>
             ))}
           </div>
-          <div style={{marginTop:8,fontSize:11,color:B.creamDim,textAlign:"right"}}>Esperado: {t.expected}</div>
         </div>
       ))}
+
+      {!loading && totalJobs>0 && techStats.filter(t=>t.total===0).length>0 && (
+        <div style={{fontSize:11,color:B.creamDim,textAlign:"center",marginTop:8}}>
+          {techStats.filter(t=>t.total===0).length} técnico(s) sin registros en este período
+        </div>
+      )}
     </div>
   );
 }
