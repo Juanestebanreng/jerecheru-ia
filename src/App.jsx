@@ -101,13 +101,6 @@ const TECHNICIANS = [
 
 const ROI_BENCHMARK = { ordersLostPerTechPerMonth:7, pricePerOrder:26.70, numTechnicians:19 };
 
-const INVOICES_STATIC = [
-  { id:1, supplier:"Electro Componentes SL", date:"10/05/2026", amount:1240.00, category:"Material",           file:"factura_electro_mayo.pdf" },
-  { id:2, supplier:"Renting Flota SA",        date:"01/05/2026", amount:3600.00, category:"Vehículos",          file:"renting_mayo.pdf" },
-  { id:3, supplier:"EPI Seguridad",           date:"28/04/2026", amount:480.50,  category:"EPI",               file:"epi_abril.pdf" },
-  { id:4, supplier:"Telefónica Empresas",     date:"15/04/2026", amount:890.00,  category:"Telecomunicaciones", file:"telefonica_abril.pdf" },
-];
-
 function Badge({ status }) {
   const m = {
     "EN RUTA":["#E8830A","#E8830A25"],"COMPLETADO":["#22C55E","#22C55E25"],
@@ -749,50 +742,7 @@ function Fleet() {
   );
 }
 
-function Invoices() {
-  const [invoices,setInvoices]=useState(INVOICES_STATIC);
-  const [search,setSearch]=useState("");
-  const [show,setShow]=useState(false);
-  const [form,setForm]=useState({supplier:"",date:"",amount:"",category:"Material",file:""});
-  const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const filtered=invoices.filter(i=>i.supplier.toLowerCase().includes(search.toLowerCase()));
-  const addInvoice=()=>{
-    if(!form.supplier.trim()||!form.amount){alert("Proveedor e importe son obligatorios.");return;}
-    const date=form.date.trim()||new Date().toLocaleDateString("es-ES");
-    setInvoices(p=>[...p,{id:Date.now(),supplier:form.supplier,date,amount:parseFloat(form.amount),category:form.category,file:form.file||"adjunto.pdf"}]);
-    setForm({supplier:"",date:"",amount:"",category:"Material",file:""});
-    setShow(false);
-  };
-  return (
-    <div>
-      {show&&(
-        <Modal title="Nueva factura" onClose={()=>setShow(false)}>
-          <FormField label="Proveedor *"><input style={inputStyle} value={form.supplier} onChange={e=>sf("supplier",e.target.value)} placeholder="Ej: Electro Componentes SL"/></FormField>
-          <FormField label="Importe (€) *"><input style={inputStyle} type="number" value={form.amount} onChange={e=>sf("amount",e.target.value)} placeholder="Ej: 1240.50"/></FormField>
-          <FormField label="Categoría *">
-            <select style={selectStyle} value={form.category} onChange={e=>sf("category",e.target.value)}>
-              <option>Material</option><option>EPI</option><option>Vehículos</option><option>Telecomunicaciones</option><option>Herramientas</option><option>Otros</option>
-            </select>
-          </FormField>
-          <FormField label="Fecha (DD/MM/AAAA)"><input style={inputStyle} value={form.date} onChange={e=>sf("date",e.target.value)} placeholder="Déjalo en blanco para usar hoy"/></FormField>
-          <FormField label="Nombre del archivo"><input style={inputStyle} value={form.file} onChange={e=>sf("file",e.target.value)} placeholder="Ej: factura_mayo_2026.pdf"/></FormField>
-          <button onClick={addInvoice} style={{width:"100%",padding:"15px",borderRadius:10,border:"none",background:B.amber,color:B.bg,fontWeight:800,fontSize:16,cursor:"pointer",marginTop:4}}>Guardar factura</button>
-        </Modal>
-      )}
-      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-        <input placeholder="Buscar proveedor..." value={search} onChange={e=>setSearch(e.target.value)} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${B.border}`,background:B.bgAccent,color:B.cream,fontSize:14,outline:"none",fontFamily:"inherit",minWidth:180}}/>
-        <button onClick={()=>setShow(true)} style={{padding:"11px 22px",borderRadius:10,border:"none",cursor:"pointer",fontSize:14,fontWeight:700,color:B.bg,background:B.amber,flexShrink:0}}>+ Añadir factura</button>
-      </div>
-      {filtered.map((inv,i)=>(
-        <div key={inv.id} style={{background:i%2===0?B.bgMid:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}><div style={{fontWeight:700,color:B.gold,fontSize:14,flex:1,marginRight:8}}>{inv.supplier}</div><div style={{fontWeight:700,color:B.cream,fontSize:14,flexShrink:0}}>€{inv.amount.toFixed(2)}</div></div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:B.creamDim}}>{inv.date}</div><span style={{background:B.amber+"25",color:B.amber,padding:"3px 10px",borderRadius:100,fontSize:11,fontWeight:600}}>{inv.category}</span></div>
-          <button style={{marginTop:10,width:"100%",padding:"9px",borderRadius:8,border:`1px solid ${B.border}`,background:"transparent",color:B.creamDim,fontSize:12,cursor:"pointer"}}>📄 {inv.file}</button>
-        </div>
-      ))}
-    </div>
-  );
-}
+
 
 function JobLog({ currentTech }) {
   const [type,setType]=useState(null);
@@ -942,11 +892,10 @@ const NAV=[
   {id:"stock",       icon:"box",     label:"Inventario"},
   {id:"multas",      icon:"alert",   label:"Multas"},
   {id:"flota",       icon:"truck",   label:"Flota"},
-  {id:"facturas",    icon:"folder",  label:"Facturas"},
   {id:"roi",         icon:"savings", label:"Ahorros"},
   {id:"joblog",      icon:"flame",   label:"Registrar trabajo"},
 ];
-const TITLES={briefing:"Resumen del Día",tracker:"Seguimiento en Vivo",produccion:"Panel de Producción",conciliacion:"Conciliación de Pagos",garantias:"Control de Garantías",stock:"Inventario y Stock",multas:"Control de Multas",flota:"Gestión de Flota",facturas:"Archivo de Facturas",roi:"Ahorros",joblog:"Registrar Trabajo"};
+const TITLES={briefing:"Resumen del Día",tracker:"Seguimiento en Vivo",produccion:"Panel de Producción",conciliacion:"Conciliación de Pagos",garantias:"Control de Garantías",stock:"Inventario y Stock",multas:"Control de Multas",flota:"Gestión de Flota",roi:"Ahorros",joblog:"Registrar Trabajo"};
 const BOTTOM_TABS=[{id:"briefing",icon:"sun",label:"Inicio"},{id:"garantias",icon:"shield",label:"Garantías"},{id:"stock",icon:"box",label:"Inventario"},{id:"roi",icon:"savings",label:"Ahorros"}];
 
 const TiloMark = ({ size = 120 }) => (
@@ -1131,7 +1080,6 @@ export default function App() {
       case "stock":       return <Stock/>;
       case "multas":      return <Fines/>;
       case "flota":       return <Fleet/>;
-      case "facturas":    return <Invoices/>;
       case "roi":         return <ROIDashboard/>;
       case "joblog":      return <JobLog currentTech={currentTech}/>;
       default:            return <Briefing {...p}/>;
