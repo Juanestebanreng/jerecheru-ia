@@ -1148,6 +1148,9 @@ export default function App() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{fontSize:12,color:B.creamDim,maxWidth:120,textAlign:"right",lineHeight:1.3}}>{TITLES[screen]}</div>
+          <button onClick={()=>window.location.reload()} style={{background:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="Actualizar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={B.creamDim} strokeWidth="1.5" strokeLinecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+          </button>
           <button onClick={()=>setMenuOpen(true)} style={{background:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="menu" size={18} color={B.cream}/></button>
         </div>
       </div>
@@ -1192,7 +1195,13 @@ export default function App() {
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{background:B.bgMid,borderBottom:`1px solid ${B.border}`,padding:"14px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{fontSize:17,fontWeight:700,color:B.cream,fontFamily:"Georgia,serif",fontStyle:"italic"}}>{TITLES[screen]}</div>
-          <div style={{fontSize:12,color:B.creamDim}}>{new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <button onClick={()=>window.location.reload()} style={{background:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:8,padding:"7px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:6,color:B.creamDim,fontSize:12,fontFamily:"inherit"}} title="Actualizar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={B.creamDim} strokeWidth="1.5" strokeLinecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Actualizar
+            </button>
+            <div style={{fontSize:12,color:B.creamDim}}>{new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          </div>
         </div>
         <div style={{flex:1,overflow:"auto",padding:24}}>{renderScreen()}</div>
       </div>
