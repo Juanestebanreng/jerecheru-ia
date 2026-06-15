@@ -425,6 +425,20 @@ function similarity(a, b) {
 // Spanish month name to month number
 const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
 
+// Convert column letter to index (A=0, B=1...)
+function colToIdx(col) {
+  let n=0;
+  for(let i=0;i<col.length;i++) n=n*26+(col.charCodeAt(i)-64);
+  return n-1;
+}
+
+// Get cell value from SheetJS worksheet by address
+function cellVal(ws, addr) {
+  const c = ws[addr];
+  if(!c) return "";
+  return c.v !== undefined ? String(c.v) : "";
+}
+
 async function parseZenerExcel(file) {
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -432,69 +446,74 @@ async function parseZenerExcel(file) {
       try {
         const data=new Uint8Array(e.target.result);
         if(!window.XLSX) throw new Error("XLSX not loaded");
-        const wb=window.XLSX.read(data,{type:"array",cellText:false,cellDates:true});
-        
+        const wb=window.XLSX.read(data,{type:"array",cellText:true});
         const sheetName = wb.SheetNames.includes("ANEXO1") ? "ANEXO1" : wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
-        const rows = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
-        
-        // Extract month and year from file header rows (first 15 rows)
-        let zenerMonth = null; // e.g. "mayo"
-        let zenerYear = null;  // e.g. 2026
-        for(let i=0;i<Math.min(15,rows.length);i++){
-          for(const cell of rows[i]){
-            const val = String(cell).toLowerCase().trim();
-            if(MESES[val]) zenerMonth = val;
-            const yearMatch = String(cell).match(/20\d\d/);
-            if(yearMatch) zenerYear = parseInt(yearMatch[0]);
-          }
-        }
-        // Also check filename for year
-        if(!zenerYear){
-          const fnYear = file.name.match(/20\d\d/);
-          if(fnYear) zenerYear = parseInt(fnYear[0]);
-        }
-        if(!zenerYear) zenerYear = new Date().getFullYear();
 
-        // Find header row (contains "ORDEN")
-        let headerIdx = -1;
-        for(let i=0;i<rows.length;i++){
-          if(rows[i].some(c=>String(c).toUpperCase().includes("ORDEN"))){
-            headerIdx=i; break;
+        // Get sheet range
+        const range = window.XLSX.utils.decode_range(ws["!ref"]||"A1:Z1000");
+        const minRow = range.s.r; // 0-based
+        const maxRow = range.e.r;
+        const minCol = range.s.c;
+        const maxCol = range.e.c;
+
+        // Extract month/year from first 15 rows
+        let zenerMonth=null, zenerYear=null;
+        for(let r=minRow;r<Math.min(minRow+15,maxRow);r++){
+          for(let c=minCol;c<=maxCol;c++){
+            const addr = window.XLSX.utils.encode_cell({r,c});
+            const val = cellVal(ws, addr).toLowerCase().trim();
+            if(MESES[val]) zenerMonth=val;
+            const ym = cellVal(ws,addr).match(/20\d\d/);
+            if(ym) zenerYear=parseInt(ym[0]);
           }
         }
-        if(headerIdx===-1) throw new Error("No se encontró la cabecera de órdenes");
-        
-        const header = rows[headerIdx];
-        let colRef=-1, colTec=-1, colImporte=-1, colTipo=-1, colFecha=-1;
-        header.forEach((h,i)=>{
-          const hu=String(h).toUpperCase();
-          if(hu.includes("ORDEN")||hu.includes("PEDIDO")) colRef=i;
-          if(hu.includes("TECNICO")) colTec=i;
-          if(hu.includes("IMPORTE TOTAL")) colImporte=i;
-          if(hu.includes("TIPO")) colTipo=i;
-          if(hu.includes("FECHA")) colFecha=i;
-        });
-        
-        if(colRef===-1) throw new Error("No se encontró la columna de referencias");
-        
-        const orders=[];
-        for(let i=headerIdx+1;i<rows.length;i++){
-          const row=rows[i];
-          let ref=String(row[colRef]||"").trim();
-          if(!ref || ref.length<3) continue;
-          if(!/\d/.test(ref)) continue;
-          // If ref is a pure number (SheetJS read it as numeric), it may have lost the /1 suffix
-          // Reconstruct it — Zener format is always NNNNNNN/N
-          if(/^\d+$/.test(ref) && ref.length>=7) ref = ref + "/1";
-          const tecnico=String(row[colTec]||"").trim().replace(/\xa0/g," ").replace(/\s+/g," ");
-          const importe=parseFloat(String(row[colImporte]||"0").replace(",",".")) || 0;
-          const tipo=String(row[colTipo]||"").trim();
-          const fecha=String(row[colFecha]||"").trim();
-          orders.push({ref, tecnico, importe, tipo, fecha, isGarantia:importe<0, isPositive:importe>0});
+        if(!zenerYear){ const fy=file.name.match(/20\d\d/); if(fy) zenerYear=parseInt(fy[0]); }
+        if(!zenerYear) zenerYear=new Date().getFullYear();
+
+        // Find header row — find row where column A contains "ORDEN" or "PEDIDO"
+        const clean = s => String(s).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]/g,"");
+        let headerRow=-1;
+        for(let r=minRow;r<=maxRow;r++){
+          for(let c=minCol;c<=maxCol;c++){
+            const v = clean(cellVal(ws, window.XLSX.utils.encode_cell({r,c})));
+            if(v.includes("ORDEN")||v.includes("TECNICO")){
+              headerRow=r; break;
+            }
+          }
+          if(headerRow>=0) break;
         }
-        
-        resolve({orders, zenerMonth, zenerYear});
+        if(headerRow<0) throw new Error("No se encontró la cabecera");
+
+        // Find column indices from header row — stop overwriting once found
+        let colRef=-1, colTec=-1, colImporte=-1, colFecha=-1;
+        for(let c=minCol;c<=maxCol;c++){
+          const v = clean(cellVal(ws, window.XLSX.utils.encode_cell({r:headerRow,c})));
+          if(colRef<0 && (v.includes("ORDEN")||v.includes("PEDIDO")||v.includes("PRESUPUESTO"))) colRef=c;
+          if(colTec<0 && v.includes("TECNICO")) colTec=c;
+          if(colImporte<0 && v.includes("IMPORTETOTAL")) colImporte=c;
+          if(colFecha<0 && v.includes("FECHA")) colFecha=c;
+        }
+        // Hard fallbacks — column indices (0-based): A=0,B=1,C=2,I=8
+        if(colRef<0) colRef=0;
+        if(colTec<0) colTec=1;
+        if(colFecha<0) colFecha=2;
+        if(colImporte<0) colImporte=8;
+
+        // Parse data rows
+        const orders=[];
+        for(let r=headerRow+1;r<=maxRow;r++){
+          let ref=cellVal(ws, window.XLSX.utils.encode_cell({r,c:colRef})).trim();
+          if(!ref||ref.length<3||!/\d/.test(ref)) continue;
+          if(/^\d+$/.test(ref)&&ref.length>=7) ref=ref+"/1";
+          const tecnico=cellVal(ws, window.XLSX.utils.encode_cell({r,c:colTec})).trim().replace(/\xa0/g," ").replace(/\s+/g," ");
+          const impStr=cellVal(ws, window.XLSX.utils.encode_cell({r,c:colImporte})).replace(",",".");
+          const importe=parseFloat(impStr)||0;
+          const fecha=cellVal(ws, window.XLSX.utils.encode_cell({r,c:colFecha})).trim();
+          orders.push({ref,tecnico,importe,fecha,isGarantia:importe<0,isPositive:importe>0});
+        }
+
+        resolve({orders,zenerMonth,zenerYear});
       } catch(err){ reject(err); }
     };
     reader.onerror=reject;
