@@ -385,48 +385,408 @@ function Production() {
   );
 }
 
+// Load SheetJS for Excel parsing
+function useSheetJS() {
+  const [ready, setReady] = useState(!!window.XLSX);
+  useEffect(()=>{
+    if(window.XLSX){setReady(true);return;}
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload=()=>setReady(true);
+    document.head.appendChild(s);
+  },[]);
+  return ready;
+}
+
+// Normalize a reference string for comparison
+function normalizeRef(r) {
+  return String(r||"").trim().toUpperCase().replace(/\s+/g,"");
+}
+
+// Levenshtein similarity 0-1
+function similarity(a, b) {
+  a = normalizeRef(a); b = normalizeRef(b);
+  if(a===b) return 1;
+  if(!a||!b) return 0;
+  const la=a.length, lb=b.length;
+  const dp=Array.from({length:lb+1},(_,i)=>i);
+  for(let j=1;j<=la;j++){
+    let prev=j;
+    for(let i=1;i<=lb;i++){
+      const val=a[j-1]===b[i-1]?dp[i-1]:Math.min(dp[i-1],dp[i],prev)+1;
+      dp[i-1]=prev; prev=val;
+    }
+    dp[lb]=prev;
+  }
+  return 1-(dp[lb]/Math.max(la,lb));
+}
+
+// Parse Zener Excel file — reads ANEXO1 sheet, column A=ref, B=tecnico, I=importe
+async function parseZenerExcel(file) {
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try {
+        const data=new Uint8Array(e.target.result);
+        if(!window.XLSX) throw new Error("XLSX not loaded");
+        const wb=window.XLSX.read(data,{type:"array",cellText:false,cellDates:true});
+        
+        // Try ANEXO1 first, fallback to first sheet
+        const sheetName = wb.SheetNames.includes("ANEXO1") ? "ANEXO1" : wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const rows = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        
+        // Find header row (contains "ORDEN")
+        let headerIdx = -1;
+        for(let i=0;i<rows.length;i++){
+          if(rows[i].some(c=>String(c).toUpperCase().includes("ORDEN"))){
+            headerIdx=i; break;
+          }
+        }
+        if(headerIdx===-1) throw new Error("No se encontró la cabecera de órdenes");
+        
+        // Find column indices
+        const header = rows[headerIdx];
+        let colRef=-1, colTec=-1, colImporte=-1, colTipo=-1, colFecha=-1;
+        header.forEach((h,i)=>{
+          const hu=String(h).toUpperCase();
+          if(hu.includes("ORDEN")||hu.includes("PEDIDO")) colRef=i;
+          if(hu.includes("TECNICO")) colTec=i;
+          if(hu.includes("IMPORTE TOTAL")) colImporte=i;
+          if(hu.includes("TIPO")) colTipo=i;
+          if(hu.includes("FECHA")) colFecha=i;
+        });
+        
+        if(colRef===-1) throw new Error("No se encontró la columna de referencias");
+        
+        const orders=[];
+        for(let i=headerIdx+1;i<rows.length;i++){
+          const row=rows[i];
+          const ref=String(row[colRef]||"").trim();
+          if(!ref || ref.length<3) continue;
+          // Skip if ref doesn't look like an order number
+          if(!/\d/.test(ref)) continue;
+          
+          const tecnico=String(row[colTec]||"").trim().replace(/\xa0/g," ").replace(/\s+/g," ");
+          const importe=parseFloat(String(row[colImporte]||"0").replace(",",".")) || 0;
+          const tipo=String(row[colTipo]||"").trim();
+          const fecha=String(row[colFecha]||"").trim();
+          
+          orders.push({ref, tecnico, importe, tipo, fecha,
+            isGarantia: importe<0,
+            isPositive: importe>0,
+          });
+        }
+        
+        resolve(orders);
+      } catch(err){ reject(err); }
+    };
+    reader.onerror=reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Match technician name from Zener (full caps) to our technician list
+function matchTechnician(zenerName) {
+  if(!zenerName) return null;
+  const zn = zenerName.toUpperCase().replace(/\xa0/g," ").replace(/\s+/g," ").trim();
+  let best=null, bestScore=0;
+  TECHNICIANS.forEach(t=>{
+    const tn = t.name.toUpperCase();
+    const sc = similarity(zn, tn);
+    if(sc>bestScore){ bestScore=sc; best=t; }
+  });
+  return bestScore>0.5 ? best : null;
+}
+
 function Reconciliation() {
-  const [uploaded,setUploaded]=useState(false);
-  const recon=TECHNICIANS.slice(0,8).map(t=>({name:t.name,logged:Math.floor(Math.random()*10+140),paid:Math.floor(Math.random()*10+130)})).map(r=>({...r,diff:r.logged-r.paid,lost:(r.logged-r.paid)*26.70}));
-  const totalLost=recon.reduce((a,r)=>a+r.lost,0);
-  return !uploaded?(
-    <div style={{background:B.bgMid,border:`1px solid ${B.border}`,borderRadius:12,padding:40,textAlign:"center"}}>
-      <div style={{marginBottom:16}}><Icon name="folder" size={40} color={B.amber}/></div>
-      <div style={{fontSize:18,fontWeight:700,color:B.amber,fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:8}}>Subir Excel de la empresa</div>
-      <div style={{fontSize:13,color:B.creamDim,marginBottom:24,lineHeight:1.6}}>Sube el Excel que te manda la compañía al final de mes.</div>
-      <button style={{padding:"12px 24px",borderRadius:10,border:"none",background:B.amber,color:B.bg,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}} onClick={()=>setUploaded(true)}>Seleccionar archivo Excel</button>
-    </div>
-  ):(
+  const xlsxReady = useSheetJS();
+  const [step, setStep] = useState("upload"); // upload | results | history | historyDetail
+  const [results, setResults] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState("");
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(null);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    const data = await sb("reconciliations","GET",null,"?order=uploaded_at.desc");
+    setHistory(Array.isArray(data)?data:[]);
+    setHistoryLoading(false);
+  };
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!window.XLSX){ setError("Cargando librería Excel, espera un momento e inténtalo de nuevo."); return; }
+    setParsing(true); setError("");
+    try {
+      const zenerOrders = await parseZenerExcel(file);
+      if(zenerOrders.length===0){ setError("No se encontraron órdenes en el archivo."); setParsing(false); return; }
+      const logs = await sb("job_logs","GET",null,"?order=logged_at.desc");
+      const jobLogs = Array.isArray(logs)?logs:[];
+      const res = runMatching(zenerOrders, jobLogs);
+      // Save to Supabase
+      const month = new Date().toLocaleDateString("es-ES",{month:"long",year:"numeric"});
+      await sb("reconciliations","POST",{
+        month,
+        total_zener: res.paidOrders.length,
+        total_matched: res.matched.length,
+        total_maybe: res.maybe.length,
+        total_missing: res.missing.length,
+        total_unmatched: res.unmatched.length,
+        total_garantia: res.garantiaAdjustments.length,
+        total_certificado: res.paidOrders.reduce((a,o)=>a+o.importe,0),
+        total_garantia_value: res.garantiaAdjustments.reduce((a,o)=>a+o.importe,0),
+        results: res,
+      });
+      setResults(res);
+      setStep("results");
+    } catch(err) {
+      setError(`Error al procesar el archivo: ${err.message}`);
+    }
+    setParsing(false);
+  };
+
+  const runMatching = (zenerOrders, jobLogs) => {
+    const MATCH_EXACT = 1.0;
+    const MATCH_MAYBE = 0.75;
+    const paidOrders = zenerOrders.filter(o=>o.isPositive);
+    const garantiaAdjustments = zenerOrders.filter(o=>o.isGarantia);
+    const matched=[], missing=[], maybe=[], unmatched=[];
+    const usedLogIds=new Set();
+
+    paidOrders.forEach(zOrder=>{
+      let bestScore=0, bestLog=null;
+      jobLogs.forEach(log=>{
+        if(!log.reference) return;
+        const sc=similarity(zOrder.ref, log.reference);
+        if(sc>bestScore){ bestScore=sc; bestLog=log; }
+      });
+      if(bestScore>=MATCH_EXACT && bestLog){
+        usedLogIds.add(bestLog.id);
+        const matchedTech = matchTechnician(zOrder.tecnico);
+        const techMatch = matchedTech && bestLog.technician_name===matchedTech.name;
+        matched.push({zOrder, log:bestLog, score:bestScore, techMatch, matchedTech});
+      } else if(bestScore>=MATCH_MAYBE && bestLog){
+        usedLogIds.add(bestLog.id);
+        maybe.push({zOrder, log:bestLog, score:bestScore});
+      } else {
+        missing.push({zOrder});
+      }
+    });
+    jobLogs.forEach(log=>{
+      if(!usedLogIds.has(log.id) && log.reference) unmatched.push({log});
+    });
+    return { matched, missing, maybe, unmatched, garantiaAdjustments, paidOrders, jobLogs };
+  };
+
+  const reset = () => { setStep("upload"); setResults(null); setFilter("all"); setError(""); };
+
+  // History list screen
+  if(step==="history") return (
     <div>
-      <div style={{background:B.red+"15",border:`1px solid ${B.red}30`,borderRadius:10,padding:16,marginBottom:16}}>
-        <div style={{fontWeight:700,color:B.red,fontSize:15,marginBottom:4}}>Discrepancia total este mes</div>
-        <div style={{fontSize:32,fontWeight:800,color:B.red}}>−€{totalLost.toFixed(0)}</div>
-        <div style={{fontSize:12,color:B.creamDim,marginTop:2}}>órdenes no cobradas × €26.70</div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button onClick={()=>setStep("upload")} style={{background:"transparent",border:"none",cursor:"pointer",color:B.creamDim,fontSize:18,padding:4}}>←</button>
+        <div style={{fontSize:16,fontWeight:700,color:B.amber,fontFamily:"Georgia,serif",fontStyle:"italic"}}>Historial de conciliaciones</div>
       </div>
-      {recon.map((r,i)=>(
-        <div key={i} style={{background:r.diff>0?B.red+"10":i%2===0?B.bgMid:B.bgAccent,border:`1px solid ${r.diff>0?B.red+"40":B.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-            <span style={{fontWeight:700,color:B.gold,fontSize:14}}>{r.name}</span>
-            <span style={{fontWeight:700,color:r.diff>0?B.red:B.green}}>{r.diff>0?`−€${r.lost.toFixed(0)}`:"✓ Sin pérdida"}</span>
+      {historyLoading&&<Loader/>}
+      {!historyLoading&&history.length===0&&(
+        <div style={{textAlign:"center",padding:"30px 0",color:B.creamDim,fontSize:13}}>No hay conciliaciones guardadas todavía.</div>
+      )}
+      {history.map((h,i)=>(
+        <div key={h.id} onClick={()=>{setSelectedMonth(h);setStep("historyDetail");}} style={{background:i%2===0?B.bgMid:B.bgAccent,border:`1px solid ${B.border}`,borderRadius:10,padding:"14px 16px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:700,color:B.amber,fontSize:15,textTransform:"capitalize"}}>{h.month}</div>
+            <div style={{fontSize:11,color:B.creamDim,marginTop:3}}>{new Date(h.uploaded_at).toLocaleDateString("es-ES")} · {h.total_zener} órdenes</div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-            {[["Registrado",r.logged,B.cream],["Pagado",r.paid,B.cream],["Diff",r.diff>0?`-${r.diff}`:r.diff,r.diff>0?B.red:B.green]].map(([l,v,c])=>(
-              <div key={l} style={{background:B.bg,borderRadius:8,padding:"8px",textAlign:"center",border:`1px solid ${B.border}`}}>
-                <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
-                <div style={{fontSize:10,color:B.creamDim,marginTop:1}}>{l}</div>
-              </div>
-            ))}
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:13,fontWeight:700,color:h.total_missing>0?B.red:B.green}}>
+              {h.total_missing>0?`${h.total_missing} sin registrar`:"Todo registrado"}
+            </div>
+            <div style={{fontSize:11,color:B.creamDim,marginTop:2}}>€{Number(h.total_certificado).toFixed(2)}</div>
           </div>
         </div>
       ))}
-      <button style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${B.border}`,background:"transparent",color:B.creamDim,fontSize:13,cursor:"pointer",marginTop:4}} onClick={()=>setUploaded(false)}>↩ Subir otro archivo</button>
+    </div>
+  );
+
+  // History detail screen
+  if(step==="historyDetail"&&selectedMonth) {
+    const r = selectedMonth.results;
+    return (
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <button onClick={()=>setStep("history")} style={{background:"transparent",border:"none",cursor:"pointer",color:B.creamDim,fontSize:18,padding:4}}>←</button>
+          <div style={{fontSize:16,fontWeight:700,color:B.amber,fontFamily:"Georgia,serif",fontStyle:"italic",textTransform:"capitalize"}}>{selectedMonth.month}</div>
+        </div>
+        <ReconciliationResults results={r} filter={filter} setFilter={setFilter} onReset={()=>setStep("history")} resetLabel="← Volver al historial"/>
+      </div>
+    );
+  }
+
+  if(step==="upload") return (
+    <div>
+      <div style={{background:B.bgMid,border:`1px solid ${B.border}`,borderRadius:12,padding:32,textAlign:"center",marginBottom:12}}>
+        <div style={{marginBottom:16}}><Icon name="euro" size={40} color={B.amber}/></div>
+        <div style={{fontSize:18,fontWeight:700,color:B.amber,fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:8}}>Conciliación con Zener</div>
+        <div style={{fontSize:13,color:B.creamDim,marginBottom:6,lineHeight:1.6}}>Sube el Excel de certificación de Zener.</div>
+        <div style={{fontSize:12,color:B.creamDim,marginBottom:24,lineHeight:1.6}}>El sistema cruzará las referencias con los trabajos registrados y te mostrará qué está confirmado, qué falta, y qué revisar.</div>
+        {error&&<div style={{background:B.red+"15",color:B.red,padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:16,border:`1px solid ${B.red}30`,textAlign:"left"}}>{error}</div>}
+        {!xlsxReady&&<div style={{fontSize:12,color:B.creamDim,marginBottom:12}}>Cargando librería Excel...</div>}
+        <label style={{display:"block",padding:"14px 24px",borderRadius:10,border:"none",background:parsing||!xlsxReady?B.gray:B.amber,color:B.bg,fontWeight:700,fontSize:14,cursor:parsing||!xlsxReady?"not-allowed":"pointer",width:"100%",boxSizing:"border-box"}}>
+          {parsing?"Analizando archivo...":"Seleccionar Excel de Zener"}
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{display:"none"}} disabled={parsing||!xlsxReady}/>
+        </label>
+      </div>
+      <button onClick={()=>{loadHistory();setStep("history");}} style={{width:"100%",padding:"13px",borderRadius:10,border:`1px solid ${B.border}`,background:B.bgMid,color:B.creamDim,fontSize:14,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>
+        Ver historial de conciliaciones
+      </button>
+    </div>
+  );
+
+  if(!results) return <Loader/>;
+  return <ReconciliationResults results={results} filter={filter} setFilter={setFilter} onReset={reset} resetLabel="↩ Subir otro archivo"/>;
+}
+
+function ReconciliationResults({ results, filter, setFilter, onReset, resetLabel }) {
+  const { matched, missing, maybe, unmatched, garantiaAdjustments, paidOrders } = results;
+  const totalPaid = paidOrders.length;
+  const totalMatched = matched.length;
+  const totalMissing = missing.length;
+  const totalMaybe = maybe.length;
+  const totalUnmatched = unmatched.length;
+  const totalGarantia = garantiaAdjustments.length;
+  const missingValue = missing.reduce((a,m)=>a+(m.zOrder?.importe||0),0);
+  const unmatchedValue = unmatched.length * 26.70;
+  const garantiaValue = garantiaAdjustments.reduce((a,g)=>a+(g.zOrder?.importe||0),0);
+  const totalCertificado = paidOrders.reduce((a,o)=>a+(o.importe||0),0);
+
+  const tabs=[
+    {id:"all",       label:`Todo (${totalPaid})`,               color:B.cream},
+    {id:"matched",   label:`✅ Confirmado (${totalMatched})`,    color:B.green},
+    {id:"maybe",     label:`⚠️ Revisar (${totalMaybe})`,         color:B.gold},
+    {id:"missing",   label:`❌ Sin registrar (${totalMissing})`,  color:B.red},
+    {id:"unmatched", label:`🔵 Ref. no encontrada (${totalUnmatched})`, color:B.blue},
+    {id:"garantia",  label:`🔄 Garantías (${totalGarantia})`,    color:B.creamDim},
+  ];
+
+  const visibleItems = () => {
+    if(filter==="matched")   return matched.map(r=>({...r,type:"matched"}));
+    if(filter==="maybe")     return maybe.map(r=>({...r,type:"maybe"}));
+    if(filter==="missing")   return missing.map(r=>({...r,type:"missing"}));
+    if(filter==="unmatched") return unmatched.map(r=>({...r,type:"unmatched"}));
+    if(filter==="garantia")  return garantiaAdjustments.map(r=>({...r,type:"garantia"}));
+    return [
+      ...matched.map(r=>({...r,type:"matched"})),
+      ...maybe.map(r=>({...r,type:"maybe"})),
+      ...missing.map(r=>({...r,type:"missing"})),
+      ...unmatched.map(r=>({...r,type:"unmatched"})),
+    ];
+  };
+
+  const typeStyle={
+    matched:  {bg:B.green+"10",  border:B.green+"40",  label:"CONFIRMADO",       color:B.green},
+    maybe:    {bg:B.gold+"10",   border:B.gold+"40",   label:"REVISAR",          color:B.gold},
+    missing:  {bg:B.red+"10",    border:B.red+"40",    label:"SIN REGISTRAR",    color:B.red},
+    unmatched:{bg:B.blue+"10",   border:B.blue+"40",   label:"REF. NO ENCONTRADA",color:B.blue},
+    garantia: {bg:B.gray+"20",   border:B.gray+"40",   label:"GARANTÍA",         color:B.creamDim},
+  };
+
+  return (
+    <div>
+      <div style={{background:"linear-gradient(135deg,#1A2E0A,#0D1A06)",border:`1px solid ${B.green}40`,borderRadius:12,padding:16,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontSize:11,color:B.green,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Total certificado Zener</div>
+          <div style={{fontSize:32,fontWeight:800,color:B.green,letterSpacing:-1}}>€{totalCertificado.toLocaleString("es-ES",{minimumFractionDigits:2})}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:B.creamDim,marginBottom:2}}>Ajustes garantías</div>
+          <div style={{fontSize:20,fontWeight:700,color:B.red}}>€{garantiaValue.toLocaleString("es-ES",{minimumFractionDigits:2})}</div>
+        </div>
+      </div>
+
+      <StatGrid stats={[
+        {label:"Órdenes Zener",  value:totalPaid,    color:B.amber},
+        {label:"Confirmados",    value:totalMatched, color:B.green},
+        {label:"Sin registrar",  value:totalMissing, color:B.red},
+        {label:"A revisar",      value:totalMaybe,   color:B.gold},
+      ]}/>
+
+      {(totalMissing>0||totalUnmatched>0)&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          {totalMissing>0&&(
+            <div style={{background:B.red+"10",border:`1px solid ${B.red}30`,borderRadius:10,padding:14}}>
+              <div style={{fontSize:11,color:B.red,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:4}}>Posible pérdida</div>
+              <div style={{fontSize:22,fontWeight:800,color:B.red}}>€{missingValue.toFixed(2)}</div>
+              <div style={{fontSize:11,color:B.creamDim,marginTop:2}}>{totalMissing} trabajos sin registro</div>
+            </div>
+          )}
+          {totalUnmatched>0&&(
+            <div style={{background:B.blue+"10",border:`1px solid ${B.blue}30`,borderRadius:10,padding:14}}>
+              <div style={{fontSize:11,color:B.blue,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:4}}>Ref. no encontrada</div>
+              <div style={{fontSize:22,fontWeight:800,color:B.blue}}>€{unmatchedValue.toFixed(2)}</div>
+              <div style={{fontSize:11,color:B.creamDim,marginTop:2}}>{totalUnmatched} registros sin match en Zener</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setFilter(t.id)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${filter===t.id?t.color:B.border}`,background:filter===t.id?t.color+"20":"transparent",color:filter===t.id?t.color:B.creamDim,fontWeight:600,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{t.label}</button>
+        ))}
+      </div>
+
+      {visibleItems().map((item,i)=>{
+        const s=typeStyle[item.type];
+        const zRef=item.zOrder?.ref||"—";
+        const zTec=item.zOrder?.tecnico||"—";
+        const zImp=item.zOrder?.importe;
+        const zFecha=item.zOrder?.fecha||"—";
+        return (
+          <div key={i} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontWeight:800,color:s.color,fontSize:12,background:s.color+"20",padding:"2px 10px",borderRadius:20}}>{s.label}</span>
+              {zImp!==undefined&&<span style={{fontWeight:700,fontSize:14,color:zImp<0?B.red:B.cream}}>€{Math.abs(zImp).toFixed(2)}</span>}
+            </div>
+            {item.zOrder&&(
+              <div style={{background:B.bg,border:`1px solid ${B.border}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                <div style={{fontSize:10,color:B.amber,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>📋 Zener</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  <div><div style={{fontSize:10,color:B.creamDim}}>Nº Orden</div><div style={{fontSize:14,fontWeight:800,color:B.cream,marginTop:1}}>{zRef}</div></div>
+                  <div><div style={{fontSize:10,color:B.creamDim}}>Fecha</div><div style={{fontSize:12,fontWeight:600,color:B.creamDim,marginTop:1}}>{zFecha.replace(/^[a-záéíóú]+-/i,"")}</div></div>
+                  <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:B.creamDim}}>Técnico en Zener</div><div style={{fontSize:12,fontWeight:600,color:B.gold,marginTop:1}}>{zTec}</div></div>
+                </div>
+              </div>
+            )}
+            {item.log&&(
+              <div style={{background:B.bg,border:`1px solid ${B.border}`,borderRadius:8,padding:"10px 12px",marginBottom:6}}>
+                <div style={{fontSize:10,color:B.green,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>📱 Registrado en app</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  <div><div style={{fontSize:10,color:B.creamDim}}>Referencia</div><div style={{fontSize:14,fontWeight:800,color:B.cream,marginTop:1}}>{item.log.reference}</div></div>
+                  <div><div style={{fontSize:10,color:B.creamDim}}>Técnico</div><div style={{fontSize:12,fontWeight:600,color:B.gold,marginTop:1}}>{item.log.technician_name}</div></div>
+                </div>
+              </div>
+            )}
+            {item.type==="maybe"&&<div style={{fontSize:11,color:B.gold,background:B.gold+"10",padding:"6px 10px",borderRadius:6,marginTop:6}}>Similitud {Math.round(item.score*100)}% — verifica que es el mismo trabajo</div>}
+            {item.type==="matched"&&item.techMatch===false&&<div style={{fontSize:11,color:B.gold,background:B.gold+"10",padding:"6px 10px",borderRadius:6,marginTop:6}}>⚠️ Referencia coincide pero técnico distinto — Zener: {item.matchedTech?.name||zTec}</div>}
+            {item.type==="missing"&&<div style={{fontSize:11,color:B.red,background:B.red+"10",padding:"6px 10px",borderRadius:6,marginTop:6}}>Zener lo tiene registrado pero ningún técnico lo registró en la app.</div>}
+            {item.type==="unmatched"&&<div style={{fontSize:11,color:B.blue,background:B.blue+"10",padding:"6px 10px",borderRadius:6,marginTop:6}}>El técnico registró esta referencia pero no aparece en el informe de Zener. Pedir explicación al técnico.</div>}
+            {item.type==="garantia"&&<div style={{fontSize:11,color:B.creamDim,background:B.gray+"15",padding:"6px 10px",borderRadius:6,marginTop:6}}>Ajuste de garantía — {zImp<0?"deducción de":"abono de"} €{Math.abs(zImp||0).toFixed(2)}</div>}
+          </div>
+        );
+      })}
+
+      <button onClick={onReset} style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${B.border}`,background:"transparent",color:B.creamDim,fontSize:13,cursor:"pointer",marginTop:8}}>{resetLabel}</button>
     </div>
   );
 }
 
 function Guarantees() {
-  const [guarantees, setGuarantees] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [guarantees, setGuarantees] = useState([]);  const [loading, setLoading] = useState(true);
 
   useEffect(()=>{
     sb("guarantees","GET",null,"?order=days_left.asc").then(data=>{
