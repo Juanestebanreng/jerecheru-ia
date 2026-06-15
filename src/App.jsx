@@ -422,6 +422,9 @@ function similarity(a, b) {
 }
 
 // Parse Zener Excel file — reads ANEXO1 sheet, column A=ref, B=tecnico, I=importe
+// Spanish month name to month number
+const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+
 async function parseZenerExcel(file) {
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -431,11 +434,28 @@ async function parseZenerExcel(file) {
         if(!window.XLSX) throw new Error("XLSX not loaded");
         const wb=window.XLSX.read(data,{type:"array",cellText:false,cellDates:true});
         
-        // Try ANEXO1 first, fallback to first sheet
         const sheetName = wb.SheetNames.includes("ANEXO1") ? "ANEXO1" : wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         const rows = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
         
+        // Extract month and year from file header rows (first 15 rows)
+        let zenerMonth = null; // e.g. "mayo"
+        let zenerYear = null;  // e.g. 2026
+        for(let i=0;i<Math.min(15,rows.length);i++){
+          for(const cell of rows[i]){
+            const val = String(cell).toLowerCase().trim();
+            if(MESES[val]) zenerMonth = val;
+            const yearMatch = String(cell).match(/20\d\d/);
+            if(yearMatch) zenerYear = parseInt(yearMatch[0]);
+          }
+        }
+        // Also check filename for year
+        if(!zenerYear){
+          const fnYear = file.name.match(/20\d\d/);
+          if(fnYear) zenerYear = parseInt(fnYear[0]);
+        }
+        if(!zenerYear) zenerYear = new Date().getFullYear();
+
         // Find header row (contains "ORDEN")
         let headerIdx = -1;
         for(let i=0;i<rows.length;i++){
@@ -445,7 +465,6 @@ async function parseZenerExcel(file) {
         }
         if(headerIdx===-1) throw new Error("No se encontró la cabecera de órdenes");
         
-        // Find column indices
         const header = rows[headerIdx];
         let colRef=-1, colTec=-1, colImporte=-1, colTipo=-1, colFecha=-1;
         header.forEach((h,i)=>{
@@ -464,21 +483,15 @@ async function parseZenerExcel(file) {
           const row=rows[i];
           const ref=String(row[colRef]||"").trim();
           if(!ref || ref.length<3) continue;
-          // Skip if ref doesn't look like an order number
           if(!/\d/.test(ref)) continue;
-          
           const tecnico=String(row[colTec]||"").trim().replace(/\xa0/g," ").replace(/\s+/g," ");
           const importe=parseFloat(String(row[colImporte]||"0").replace(",",".")) || 0;
           const tipo=String(row[colTipo]||"").trim();
           const fecha=String(row[colFecha]||"").trim();
-          
-          orders.push({ref, tecnico, importe, tipo, fecha,
-            isGarantia: importe<0,
-            isPositive: importe>0,
-          });
+          orders.push({ref, tecnico, importe, tipo, fecha, isGarantia:importe<0, isPositive:importe>0});
         }
         
-        resolve(orders);
+        resolve({orders, zenerMonth, zenerYear});
       } catch(err){ reject(err); }
     };
     reader.onerror=reject;
@@ -523,15 +536,28 @@ function Reconciliation() {
     if(!window.XLSX){ setError("Cargando librería Excel, espera un momento e inténtalo de nuevo."); return; }
     setParsing(true); setError("");
     try {
-      const zenerOrders = await parseZenerExcel(file);
+      const {orders: zenerOrders, zenerMonth, zenerYear} = await parseZenerExcel(file);
       if(zenerOrders.length===0){ setError("No se encontraron órdenes en el archivo."); setParsing(false); return; }
-      const logs = await sb("job_logs","GET",null,"?order=logged_at.desc");
+
+      // Build date range for the Zener month
+      const monthNum = zenerMonth ? MESES[zenerMonth] : new Date().getMonth()+1;
+      const year = zenerYear || new Date().getFullYear();
+      const pad = n => String(n).padStart(2,"0");
+      const lastDay = new Date(year, monthNum, 0).getDate();
+      const dateStart = `${year}-${pad(monthNum)}-01T00:00:00`;
+      const dateEnd   = `${year}-${pad(monthNum)}-${pad(lastDay)}T23:59:59`;
+
+      // Fetch ONLY job_logs from that month
+      const logs = await sb("job_logs","GET",null,`?logged_at=gte.${dateStart}&logged_at=lte.${dateEnd}&order=logged_at.desc`);
       const jobLogs = Array.isArray(logs)?logs:[];
+
+      const monthLabel = zenerMonth
+        ? `${zenerMonth.charAt(0).toUpperCase()+zenerMonth.slice(1)} ${year}`
+        : new Date().toLocaleDateString("es-ES",{month:"long",year:"numeric"});
+
       const res = runMatching(zenerOrders, jobLogs);
-      // Save to Supabase
-      const month = new Date().toLocaleDateString("es-ES",{month:"long",year:"numeric"});
       await sb("reconciliations","POST",{
-        month,
+        month: monthLabel,
         total_zener: res.paidOrders.length,
         total_matched: res.matched.length,
         total_maybe: res.maybe.length,
