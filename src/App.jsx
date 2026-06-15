@@ -398,9 +398,9 @@ function useSheetJS() {
   return ready;
 }
 
-// Normalize a reference string for comparison
+// Normalize a reference string for comparison — strips /1 /2 suffix, spaces, uppercase
 function normalizeRef(r) {
-  return String(r||"").trim().toUpperCase().replace(/\s+/g,"");
+  return String(r||"").trim().toUpperCase().replace(/\s+/g,"").replace(/\/\d+$/,"");
 }
 
 // Levenshtein similarity 0-1
@@ -481,9 +481,12 @@ async function parseZenerExcel(file) {
         const orders=[];
         for(let i=headerIdx+1;i<rows.length;i++){
           const row=rows[i];
-          const ref=String(row[colRef]||"").trim();
+          let ref=String(row[colRef]||"").trim();
           if(!ref || ref.length<3) continue;
           if(!/\d/.test(ref)) continue;
+          // If ref is a pure number (SheetJS read it as numeric), it may have lost the /1 suffix
+          // Reconstruct it — Zener format is always NNNNNNN/N
+          if(/^\d+$/.test(ref) && ref.length>=7) ref = ref + "/1";
           const tecnico=String(row[colTec]||"").trim().replace(/\xa0/g," ").replace(/\s+/g," ");
           const importe=parseFloat(String(row[colImporte]||"0").replace(",",".")) || 0;
           const tipo=String(row[colTipo]||"").trim();
