@@ -1485,7 +1485,14 @@ export default function App() {
   // Save screen to sessionStorage whenever it changes
   useEffect(()=>{ if(screen) sessionStorage.setItem("jr_screen",screen); },[screen]);
 
-  useEffect(()=>{\n    if(role&&role!==\"technician\"){\n      sb(\"stock\",\"GET\",null,\"?order=name.asc\").then(d=>setStock(Array.isArray(d)?d:[]));\n      sb(\"fines\",\"GET\",null,\"?order=days_left.asc\").then(d=>setFines(Array.isArray(d)?d:[]));\n      sb(\"guarantees\",\"GET\",null,\"?order=days_left.asc\").then(d=>setGuarantees(Array.isArray(d)?d:[]));\n      sb(\"vehicles\",\"GET\",null,\"?order=plate.asc\").then(d=>setVehicles(Array.isArray(d)?d:[]));\n    }\n  },[role]);
+  useEffect(()=>{
+    if(role&&role!=="technician"){
+      sb("stock","GET",null,"?order=name.asc").then(d=>setStock(Array.isArray(d)?d:[]));
+      sb("fines","GET",null,"?order=days_left.asc").then(d=>setFines(Array.isArray(d)?d:[]));
+      sb("guarantees","GET",null,"?order=days_left.asc").then(d=>setGuarantees(Array.isArray(d)?d:[]));
+      sb("vehicles","GET",null,"?order=plate.asc").then(d=>setVehicles(Array.isArray(d)?d:[]));
+    }
+  },[role]);
 
   if(!role) return <Login onLogin={handleLogin}/>;
 
