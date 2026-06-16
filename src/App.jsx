@@ -1454,9 +1454,12 @@ function MobileMenu({screen,setScreen,role,onClose,onLogout}){
 }
 
 export default function App() {
-  const [role,setRole]=useState(null);
-  const [currentTech,setCurrentTech]=useState(null);
-  const [screen,setScreen]=useState("briefing");
+  const [role,setRole]=useState(()=>sessionStorage.getItem("jr_role")||null);
+  const [currentTech,setCurrentTech]=useState(()=>{
+    const t=sessionStorage.getItem("jr_tech");
+    return t?JSON.parse(t):null;
+  });
+  const [screen,setScreen]=useState(()=>sessionStorage.getItem("jr_screen")||"briefing");
   const [menuOpen,setMenuOpen]=useState(false);
   const [stock,setStock]=useState([]);
   const [fines,setFines]=useState([]);
@@ -1464,16 +1467,27 @@ export default function App() {
   const [vehicles,setVehicles]=useState([]);
   const isMobile=useIsMobile();
 
-  useEffect(()=>{
-    if(role&&role!=="technician"){
-      sb("stock","GET",null,"?order=name.asc").then(d=>setStock(Array.isArray(d)?d:[]));
-      sb("fines","GET",null,"?order=days_left.asc").then(d=>setFines(Array.isArray(d)?d:[]));
-      sb("guarantees","GET",null,"?order=days_left.asc").then(d=>setGuarantees(Array.isArray(d)?d:[]));
-      sb("vehicles","GET",null,"?order=plate.asc").then(d=>setVehicles(Array.isArray(d)?d:[]));
-    }
-  },[role]);
+  const handleLogin=(r,tech)=>{
+    sessionStorage.setItem("jr_role",r);
+    sessionStorage.setItem("jr_tech",tech?JSON.stringify(tech):"");
+    const sc=r==="technician"?"joblog":"briefing";
+    sessionStorage.setItem("jr_screen",sc);
+    setRole(r); setCurrentTech(tech||null); setScreen(sc);
+  };
 
-  if(!role) return <Login onLogin={(r,tech)=>{setRole(r);setCurrentTech(tech||null);setScreen(r==="technician"?"joblog":"briefing");}}/>;
+  const handleLogout=()=>{
+    sessionStorage.removeItem("jr_role");
+    sessionStorage.removeItem("jr_tech");
+    sessionStorage.removeItem("jr_screen");
+    setRole(null); setCurrentTech(null);
+  };
+
+  // Save screen to sessionStorage whenever it changes
+  useEffect(()=>{ if(screen) sessionStorage.setItem("jr_screen",screen); },[screen]);
+
+  useEffect(()=>{\n    if(role&&role!==\"technician\"){\n      sb(\"stock\",\"GET\",null,\"?order=name.asc\").then(d=>setStock(Array.isArray(d)?d:[]));\n      sb(\"fines\",\"GET\",null,\"?order=days_left.asc\").then(d=>setFines(Array.isArray(d)?d:[]));\n      sb(\"guarantees\",\"GET\",null,\"?order=days_left.asc\").then(d=>setGuarantees(Array.isArray(d)?d:[]));\n      sb(\"vehicles\",\"GET\",null,\"?order=plate.asc\").then(d=>setVehicles(Array.isArray(d)?d:[]));\n    }\n  },[role]);
+
+  if(!role) return <Login onLogin={handleLogin}/>;
 
   const visibleNav=role==="technician"?NAV.filter(n=>n.id==="joblog"):role==="secretary"?NAV.filter(n=>n.id!=="conciliacion"&&n.id!=="roi"):NAV;
 
@@ -1496,7 +1510,7 @@ export default function App() {
 
   if(isMobile) return (
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:B.bg,fontFamily:"'DM Sans',sans-serif",color:B.cream}}>
-      {menuOpen&&<MobileMenu screen={screen} setScreen={setScreen} role={role} onClose={()=>setMenuOpen(false)} onLogout={()=>{setRole(null);setMenuOpen(false);}}/>}
+      {menuOpen&&<MobileMenu screen={screen} setScreen={setScreen} role={role} onClose={()=>setMenuOpen(false)} onLogout={()=>{handleLogout();setMenuOpen(false);}}/>}
       <div style={{background:B.bgMid,borderBottom:`1px solid ${B.border}`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <JLogo size={30}/>
@@ -1545,7 +1559,7 @@ export default function App() {
         <div style={{padding:"16px 18px",borderTop:`1px solid ${B.border}`}}>
           <div style={{fontSize:11,color:B.creamDim,marginBottom:3}}>Sesión activa</div>
           <div style={{fontSize:13,color:B.amber,fontWeight:600,marginBottom:10}}>{role==="owner"?"Daniel (Propietario)":role==="secretary"?"Secretaria":"Técnico"}</div>
-          <button onClick={()=>setRole(null)} style={{width:"100%",padding:"7px",borderRadius:8,border:`1px solid ${B.border}`,background:"transparent",color:B.creamDim,fontSize:12,cursor:"pointer"}}>Cerrar sesión</button>
+          <button onClick={handleLogout} style={{width:"100%",padding:"7px",borderRadius:8,border:`1px solid ${B.border}`,background:"transparent",color:B.creamDim,fontSize:12,cursor:"pointer"}}>Cerrar sesión</button>
         </div>
       </div>
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
